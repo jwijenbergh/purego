@@ -195,7 +195,7 @@ func RegisterFunc(fptr interface{}, cfn uintptr) {
 		}
 		sizeOfStack := maxArgs - numOfIntegerRegisters()
 		if stack > sizeOfStack {
-			panic("purego: too many arguments")
+			return
 		}
 	}
 	v := reflect.MakeFunc(ty, func(args []reflect.Value) (results []reflect.Value) {
