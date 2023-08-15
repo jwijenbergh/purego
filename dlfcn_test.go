@@ -16,7 +16,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
+	"github.com/jwijenbergh/purego"
 )
 
 func TestSimpleDlsym(t *testing.T) {

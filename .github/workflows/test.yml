@@ -64,8 +64,8 @@ jobs:
           # Check cross-compiling FreeBSD binaries.
           # gcflags -std is necessary to make fakecgo the Cgo for
           # FreeBSD to add the symbols that libc.so depends on.
-          env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
-          env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+          env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std" -v ./...
+          env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std" -v ./...
 
       - name: go mod vendor
         if: runner.os != 'Linux'
@@ -75,10 +75,10 @@ jobs:
           go mod init foo
           echo 'package main' > main.go
           echo 'import (' >> main.go
-          echo '  _ "github.com/ebitengine/purego"' >> main.go
+          echo '  _ "github.com/jwijenbergh/purego"' >> main.go
           echo ')' >> main.go
           echo 'func main() {}' >> main.go
-          go mod edit -replace github.com/ebitengine/purego=$GITHUB_WORKSPACE
+          go mod edit -replace github.com/jwijenbergh/purego=$GITHUB_WORKSPACE
           go mod tidy
           go mod vendor
           go build -v .
@@ -170,8 +170,8 @@ jobs:
             env GOOS=linux GOARCH=arm64 go build -v ./...
 
             # Check cross-compiling FreeBSD binaries.
-            env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
-            env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+            env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std" -v ./...
+            env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std" -v ./...
 
             echo "=> go mod vendor"
             mkdir /tmp/vendoring
@@ -179,17 +179,17 @@ jobs:
             go mod init foo
             echo 'package main' > main.go
             echo 'import (' >> main.go
-            echo '  _ "github.com/ebitengine/purego"' >> main.go
+            echo '  _ "github.com/jwijenbergh/purego"' >> main.go
             echo ')' >> main.go
             echo 'func main() {}' >> main.go
-            go mod edit -replace github.com/ebitengine/purego=$GITHUB_WORKSPACE
+            go mod edit -replace github.com/jwijenbergh/purego=$GITHUB_WORKSPACE
             go mod tidy
             go mod vendor
             go build -v .
 
             cd $GITHUB_WORKSPACE
             echo "=> go test CGO_ENABLED=0"
-            env CGO_ENABLED=0 go test -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -shuffle=on -v -count=10 ./...
+            env CGO_ENABLED=0 go test -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std" -shuffle=on -v -count=10 ./...
 
             echo "=> go test CGO_ENABLED=1"
             env CGO_ENABLED=1 go test -shuffle=on -v -count=10 ./...
