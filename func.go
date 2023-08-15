@@ -286,8 +286,15 @@ func RegisterFunc(fptr interface{}, cfn uintptr) {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				addInt(uintptr(v.Int()))
 			case reflect.Ptr, reflect.UnsafePointer, reflect.Slice:
-				// There is no need to keepAlive this pointer separately because it is kept alive in the args variable
-				addInt(v.Pointer())
+				if g, ok := v.Interface().([]string); ok {
+					res := strings.ByteSlice(g)
+					keepAlive = append(keepAlive, res)
+					addInt(uintptr(unsafe.Pointer(res)))
+				} else {
+					keepAlive = append(keepAlive, v.Pointer())
+					// There is no need to keepAlive this pointer separately because it is kept alive in the args variable
+					addInt(v.Pointer())
+				}
 			case reflect.Func:
 				addInt(NewCallback(v.Interface()))
 			case reflect.Bool:

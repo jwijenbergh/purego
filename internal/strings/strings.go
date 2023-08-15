@@ -12,6 +12,17 @@ func hasSuffix(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
+func ByteSlice(name []string) **byte {
+	if name == nil {
+		return nil
+	}
+	res := make([]*byte, len(name))
+	for i, v := range name {
+		res[i] = CString(v)
+	}
+	return &res[0]
+}
+
 // CString converts a go string to *byte that can be passed to C code.
 func CString(name string) *byte {
 	if hasSuffix(name, "\x00") {
