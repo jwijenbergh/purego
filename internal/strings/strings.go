@@ -16,10 +16,11 @@ func ByteSlice(name []string) **byte {
 	if name == nil {
 		return nil
 	}
-	res := make([]*byte, len(name))
+	res := make([]*byte, len(name)+1)
 	for i, v := range name {
 		res[i] = CString(v)
 	}
+	res[len(name)] = nil
 	return &res[0]
 }
 
