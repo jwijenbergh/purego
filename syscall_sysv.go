@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"sync"
 	"unsafe"
+
+	"github.com/jwijenbergh/purego/internal/strings"
 )
 
 var syscall15XABI0 uintptr
@@ -90,7 +92,7 @@ func compileCallback(fn interface{}) uintptr {
 			fallthrough
 		case reflect.Interface, reflect.Func, reflect.Slice,
 			reflect.Chan, reflect.Complex64, reflect.Complex128,
-			reflect.String, reflect.Map, reflect.Invalid:
+			reflect.Map, reflect.Invalid:
 			panic("purego: unsupported argument type: " + in.Kind().String())
 		}
 	}
@@ -149,6 +151,16 @@ func callbackWrap(a *callbackArgs) {
 	stack := numOfIntegerRegisters() + numOfFloats
 	for i := range args {
 		var pos int
+		addInt := func() {
+			if intsN >= numOfIntegerRegisters() {
+				pos = stack
+				stack++
+			} else {
+				// the integers begin after the floats in frame
+				pos = intsN + numOfFloats
+			}
+			intsN++
+		}
 		switch fnType.In(i).Kind() {
 		case reflect.Float32, reflect.Float64:
 			if floatsN >= numOfFloats {
@@ -158,20 +170,16 @@ func callbackWrap(a *callbackArgs) {
 				pos = floatsN
 			}
 			floatsN++
+		case reflect.String:
+			addInt()
+			args[i] = reflect.ValueOf(strings.GoString(frame[pos]))
+			continue
 		case reflect.Struct:
 			// This is the CDecl field
 			args[i] = reflect.Zero(fnType.In(i))
 			continue
 		default:
-
-			if intsN >= numOfIntegerRegisters() {
-				pos = stack
-				stack++
-			} else {
-				// the integers begin after the floats in frame
-				pos = intsN + numOfFloats
-			}
-			intsN++
+			addInt()
 		}
 		args[i] = reflect.NewAt(fnType.In(i), unsafe.Pointer(&frame[pos])).Elem()
 	}
