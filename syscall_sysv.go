@@ -6,6 +6,7 @@
 package purego
 
 import (
+	"errors"
 	"reflect"
 	"runtime"
 	"sync"
@@ -27,34 +28,121 @@ func syscall_syscall15X(fn, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a
 	return args.a1, args.a2, 0
 }
 
+// UnrefCallback unreferences the associated callback (created by NewCallback) by callback pointer.
+func UnrefCallback(cb uintptr) error {
+	cbs.lock.Lock()
+	defer cbs.lock.Unlock()
+	idx, ok := cbs.knownIdx[cb]
+	if !ok {
+		return errors.New(`callback not found`)
+	}
+	val := cbs.funcs[idx]
+	delete(cbs.knownFnPtr, val.Pointer())
+	delete(cbs.knownIdx, cb)
+	cbs.holes[idx] = struct{}{}
+	cbs.funcs[idx] = reflect.Value{}
+	return nil
+}
+
+// UnrefCallbackFnPtr unreferences the associated callback (created by NewCallbackFnPtr) by function pointer address
+func UnrefCallbackFnPtr(cb any) error {
+	val := reflect.ValueOf(cb)
+	if val.IsNil() {
+		panic("purego: function must not be nil")
+	}
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Func {
+		panic("purego: the type must be a function pointer but was not")
+	}
+
+	addr, ok := getCallbackByFnPtr(val)
+	if !ok {
+		return errors.New(`callback not found`)
+	}
+
+	cbs.lock.Lock()
+	defer cbs.lock.Unlock()
+	idx := cbs.knownIdx[addr]
+	delete(cbs.knownFnPtr, val.Pointer())
+	delete(cbs.knownIdx, addr)
+	cbs.holes[idx] = struct{}{}
+	cbs.funcs[idx] = reflect.Value{}
+	return nil
+}
+
 // NewCallback converts a Go function to a function pointer conforming to the C calling convention.
 // This is useful when interoperating with C code requiring callbacks. The argument is expected to be a
 // function with zero or one uintptr-sized result. The function must not have arguments with size larger than the size
-// of uintptr. Only a limited number of callbacks may be created in a single Go process, and any memory allocated
-// for these callbacks is never released. At least 2000 callbacks can always be created. Although this function
-// provides similar functionality to windows.NewCallback it is distinct.
+// of uintptr. Only a limited number of callbacks may be live in a single Go process, and any memory allocated
+// for these callbacks is not released until CallbackUnref is called. At most 2000 callbacks can always be live.
+// Although this function provides similar functionality to windows.NewCallback it is distinct.
 func NewCallback(fn interface{}) uintptr {
-	ty := reflect.TypeOf(fn)
-	for i := 0; i < ty.NumIn(); i++ {
-		in := ty.In(i)
-		if !in.AssignableTo(reflect.TypeOf(CDecl{})) {
-			continue
-		}
-		if i != 0 {
-			panic("purego: CDecl must be the first argument")
-		}
+	val := reflect.ValueOf(fn)
+	if val.Kind() != reflect.Func {
+		panic("purego: the type must be a function but was not")
 	}
-	return compileCallback(fn)
+	if val.IsNil() {
+		panic("purego: function must not be nil")
+	}
+	return compileCallback(val)
+}
+
+// NewCallbackFnPtr converts a Go function pointer to a function pointer conforming to the C calling convention.
+// This is useful when interoperating with C code requiring callbacks. The argument is expected to be a
+// function with zero or one uintptr-sized result. The function must not have arguments with size larger than the size
+// of uintptr. Only a limited number of callbacks may be live in a single Go process, and any memory allocated
+// for these callbacks is not released until CallbackUnrefFnPtr is called. At most 2000 callbacks can always be live.
+//
+// Calling this function multiple times with the same function pointer will return the originally created callback
+// reference, reducing live callback pressure.
+func NewCallbackFnPtr(fnptr interface{}) uintptr {
+	val := reflect.ValueOf(fnptr)
+	if val.IsNil() {
+		panic("purego: function must not be nil")
+	}
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Func {
+		panic("purego: the type must be a function pointer but was not")
+	}
+
+	// Re-use callback to function pointer if available
+	if addr, ok := getCallbackByFnPtr(val); ok {
+		return addr
+	}
+
+	addr := compileCallback(val.Elem())
+
+	cbs.lock.Lock()
+	cbs.knownFnPtr[val.Pointer()] = addr
+	cbs.lock.Unlock()
+	return addr
 }
 
 // maxCb is the maximum number of callbacks
 // only increase this if you have added more to the callbackasm function
 const maxCB = 2000
 
-var cbs struct {
-	lock  sync.Mutex
-	numFn int                  // the number of functions currently in cbs.funcs
-	funcs [maxCB]reflect.Value // the saved callbacks
+var cbs = struct {
+	lock       sync.RWMutex
+	holes      map[int]struct{}     // tracks available indexes in the funcs array
+	funcs      [maxCB]reflect.Value // the saved callbacks
+	knownIdx   map[uintptr]int      // maps callback addresses to index in funcs
+	knownFnPtr map[uintptr]uintptr  // maps function pointers to callback addresses
+}{
+	holes:      make(map[int]struct{}, maxCB),
+	knownIdx:   make(map[uintptr]int, maxCB),
+	knownFnPtr: make(map[uintptr]uintptr, maxCB),
+}
+
+func init() {
+	for i := 0; i < maxCB; i++ {
+		cbs.holes[i] = struct{}{}
+	}
+}
+
+func getCallbackByFnPtr(val reflect.Value) (uintptr, bool) {
+	cbs.lock.RLock()
+	defer cbs.lock.RUnlock()
+	addr, ok := cbs.knownFnPtr[val.Pointer()]
+	return addr, ok
 }
 
 type callbackArgs struct {
@@ -73,14 +161,7 @@ type callbackArgs struct {
 	result uintptr
 }
 
-func compileCallback(fn interface{}) uintptr {
-	val := reflect.ValueOf(fn)
-	if val.Kind() != reflect.Func {
-		panic("purego: the type must be a function but was not")
-	}
-	if val.IsNil() {
-		panic("purego: function must not be nil")
-	}
+func compileCallback(val reflect.Value) uintptr {
 	ty := val.Type()
 	for i := 0; i < ty.NumIn(); i++ {
 		in := ty.In(i)
@@ -111,12 +192,19 @@ output:
 	}
 	cbs.lock.Lock()
 	defer cbs.lock.Unlock()
-	if cbs.numFn >= maxCB {
+	if len(cbs.holes) == 0 {
 		panic("purego: the maximum number of callbacks has been reached")
 	}
-	cbs.funcs[cbs.numFn] = val
-	cbs.numFn++
-	return callbackasmAddr(cbs.numFn - 1)
+	var idx int
+	for i := range cbs.holes {
+		idx = i
+		break
+	}
+	delete(cbs.holes, idx)
+	cbs.funcs[idx] = val
+	addr := callbackasmAddr(idx)
+	cbs.knownIdx[addr] = idx
+	return addr
 }
 
 const ptrSize = unsafe.Sizeof((*int)(nil))
@@ -138,9 +226,9 @@ var callbackWrap_call = callbackWrap
 // callbackWrap is called by assembly code which determines which Go function to call.
 // This function takes the arguments and passes them to the Go function and returns the result.
 func callbackWrap(a *callbackArgs) {
-	cbs.lock.Lock()
+	cbs.lock.RLock()
 	fn := cbs.funcs[a.index]
-	cbs.lock.Unlock()
+	cbs.lock.RUnlock()
 	fnType := fn.Type()
 	args := make([]reflect.Value, fnType.NumIn())
 	frame := (*[callbackMaxFrame]uintptr)(a.args)
