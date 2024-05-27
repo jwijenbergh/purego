@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/ebitengine/purego"
+	"github.com/jwijenbergh/purego"
 )
 
 const (
