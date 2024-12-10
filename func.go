@@ -143,7 +143,7 @@ func RegisterFunc(fptr interface{}, cfn uintptr) {
 						panic("purego: CDecl must be the first argument")
 					}
 				}
-			case reflect.String, reflect.Uintptr, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			case reflect.Array, reflect.String, reflect.Uintptr, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 				reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Ptr, reflect.UnsafePointer,
 				reflect.Slice, reflect.Bool:
 				if ints < numOfIntegerRegisters() {
@@ -285,6 +285,12 @@ func RegisterFunc(fptr interface{}, cfn uintptr) {
 				addInt(uintptr(v.Uint()))
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				addInt(uintptr(v.Int()))
+			case reflect.Array:
+				sliceT := reflect.SliceOf(v.Type().Elem())
+				slice := reflect.MakeSlice(sliceT, v.Len(), v.Len())
+				reflect.Copy(slice, v)
+				v = slice
+				fallthrough
 			case reflect.Ptr, reflect.UnsafePointer, reflect.Slice:
 				if g, ok := v.Interface().([]string); ok {
 					res := strings.ByteSlice(g)
