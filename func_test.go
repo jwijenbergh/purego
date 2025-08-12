@@ -224,3 +224,16 @@ func buildSharedLib(compilerEnv, libFile string, sources ...string) error {
 
 	return nil
 }
+
+func TestCallbackFnPtrDedup(t *testing.T) {
+	imp := func() uintptr {
+		return 0
+	}
+
+	ref1 := purego.NewCallbackFnPtr(&imp)
+	ref2 := purego.NewCallbackFnPtr(&imp)
+
+	if ref1 != ref2 {
+		t.Errorf("deduplicate expected %d to equal %d", ref1, ref2)
+	}
+}

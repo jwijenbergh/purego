@@ -6,10 +6,13 @@
 package purego
 
 import (
+	"errors"
 	"reflect"
 	"runtime"
 	"sync"
 	"unsafe"
+
+	"github.com/ebitengine/purego/internal/strings"
 )
 
 var syscall15XABI0 uintptr
@@ -26,6 +29,47 @@ func syscall_syscall15X(fn, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a
 
 	runtime_cgocall(syscall15XABI0, unsafe.Pointer(args))
 	return args.a1, args.a2, 0
+}
+
+// UnrefCallback unreferences the associated callback (created by NewCallback) by callback pointer.
+func UnrefCallback(cb uintptr) error {
+	cbs.lock.Lock()
+	defer cbs.lock.Unlock()
+	idx, ok := cbs.knownIdx[cb]
+	if !ok {
+		return errors.New(`callback not found`)
+	}
+	val := cbs.funcs[idx]
+	delete(cbs.knownFnPtr, val.Pointer())
+	delete(cbs.knownIdx, cb)
+	cbs.holes[idx] = struct{}{}
+	cbs.funcs[idx] = reflect.Value{}
+	return nil
+}
+
+// UnrefCallbackFnPtr unreferences the associated callback (created by NewCallbackFnPtr) by function pointer address
+func UnrefCallbackFnPtr(cb any) error {
+	val := reflect.ValueOf(cb)
+	if val.IsNil() {
+		panic("purego: function must not be nil")
+	}
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Func {
+		panic("purego: the type must be a function pointer but was not")
+	}
+
+	addr, ok := getCallbackByFnPtr(val)
+	if !ok {
+		return errors.New(`callback not found`)
+	}
+
+	cbs.lock.Lock()
+	defer cbs.lock.Unlock()
+	idx := cbs.knownIdx[addr]
+	delete(cbs.knownFnPtr, val.Pointer())
+	delete(cbs.knownIdx, addr)
+	cbs.holes[idx] = struct{}{}
+	cbs.funcs[idx] = reflect.Value{}
+	return nil
 }
 
 // NewCallback converts a Go function to a function pointer conforming to the C calling convention.
@@ -48,14 +92,63 @@ func NewCallback(fn any) uintptr {
 	return compileCallback(fn)
 }
 
+// NewCallbackFnPtr converts a Go function pointer to a function pointer conforming to the C calling convention.
+// This is useful when interoperating with C code requiring callbacks. The argument is expected to be a
+// function with zero or one uintptr-sized result. The function must not have arguments with size larger than the size
+// of uintptr. Only a limited number of callbacks may be live in a single Go process, and any memory allocated
+// for these callbacks is not released until CallbackUnrefFnPtr is called. At most 2000 callbacks can always be live.
+//
+// Calling this function multiple times with the same function pointer will return the originally created callback
+// reference, reducing live callback pressure.
+func NewCallbackFnPtr(fnptr interface{}) uintptr {
+	val := reflect.ValueOf(fnptr)
+	if val.IsNil() {
+		panic("purego: function must not be nil")
+	}
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Func {
+		panic("purego: the type must be a function pointer but was not")
+	}
+
+	// Re-use callback to function pointer if available
+	if addr, ok := getCallbackByFnPtr(val); ok {
+		return addr
+	}
+
+	addr := compileCallback(val.Elem())
+
+	cbs.lock.Lock()
+	cbs.knownFnPtr[val.Pointer()] = addr
+	cbs.lock.Unlock()
+	return addr
+}
+
 // maxCb is the maximum number of callbacks
 // only increase this if you have added more to the callbackasm function
 const maxCB = 2000
 
-var cbs struct {
-	lock  sync.Mutex
-	numFn int                  // the number of functions currently in cbs.funcs
-	funcs [maxCB]reflect.Value // the saved callbacks
+var cbs = struct {
+	lock       sync.RWMutex
+	holes      map[int]struct{}     // tracks available indexes in the funcs array
+	funcs      [maxCB]reflect.Value // the saved callbacks
+	knownIdx   map[uintptr]int      // maps callback addresses to index in funcs
+	knownFnPtr map[uintptr]uintptr  // maps function pointers to callback addresses
+}{
+	holes:      make(map[int]struct{}, maxCB),
+	knownIdx:   make(map[uintptr]int, maxCB),
+	knownFnPtr: make(map[uintptr]uintptr, maxCB),
+}
+
+func init() {
+	for i := 0; i < maxCB; i++ {
+		cbs.holes[i] = struct{}{}
+	}
+}
+
+func getCallbackByFnPtr(val reflect.Value) (uintptr, bool) {
+	cbs.lock.RLock()
+	defer cbs.lock.RUnlock()
+	addr, ok := cbs.knownFnPtr[val.Pointer()]
+	return addr, ok
 }
 
 type callbackArgs struct {
@@ -93,7 +186,7 @@ func compileCallback(fn any) uintptr {
 			fallthrough
 		case reflect.Interface, reflect.Func, reflect.Slice,
 			reflect.Chan, reflect.Complex64, reflect.Complex128,
-			reflect.String, reflect.Map, reflect.Invalid:
+			reflect.Map, reflect.Invalid:
 			panic("purego: unsupported argument type: " + in.Kind().String())
 		}
 	}
@@ -112,12 +205,19 @@ output:
 	}
 	cbs.lock.Lock()
 	defer cbs.lock.Unlock()
-	if cbs.numFn >= maxCB {
+	if len(cbs.holes) == 0 {
 		panic("purego: the maximum number of callbacks has been reached")
 	}
-	cbs.funcs[cbs.numFn] = val
-	cbs.numFn++
-	return callbackasmAddr(cbs.numFn - 1)
+	var idx int
+	for i := range cbs.holes {
+		idx = i
+		break
+	}
+	delete(cbs.holes, idx)
+	cbs.funcs[idx] = val
+	addr := callbackasmAddr(idx)
+	cbs.knownIdx[addr] = idx
+	return addr
 }
 
 const ptrSize = unsafe.Sizeof((*int)(nil))
@@ -139,9 +239,9 @@ var callbackWrap_call = callbackWrap
 // callbackWrap is called by assembly code which determines which Go function to call.
 // This function takes the arguments and passes them to the Go function and returns the result.
 func callbackWrap(a *callbackArgs) {
-	cbs.lock.Lock()
+	cbs.lock.RLock()
 	fn := cbs.funcs[a.index]
-	cbs.lock.Unlock()
+	cbs.lock.RUnlock()
 	fnType := fn.Type()
 	args := make([]reflect.Value, fnType.NumIn())
 	frame := (*[callbackMaxFrame]uintptr)(a.args)
@@ -152,6 +252,16 @@ func callbackWrap(a *callbackArgs) {
 	stack := numOfIntegerRegisters() + numOfFloatRegisters
 	for i := range args {
 		var pos int
+		addInt := func() {
+			if intsN >= numOfIntegerRegisters() {
+				pos = stack
+				stack++
+			} else {
+				// the integers begin after the floats in frame
+				pos = intsN + numOfFloatRegisters
+			}
+			intsN++
+		}
 		switch fnType.In(i).Kind() {
 		case reflect.Float32, reflect.Float64:
 			if floatsN >= numOfFloatRegisters {
@@ -161,20 +271,15 @@ func callbackWrap(a *callbackArgs) {
 				pos = floatsN
 			}
 			floatsN++
+		case reflect.String:
+			addInt()
+			args[i] = reflect.ValueOf(strings.GoString(frame[pos]))
 		case reflect.Struct:
 			// This is the CDecl field
 			args[i] = reflect.Zero(fnType.In(i))
 			continue
 		default:
-
-			if intsN >= numOfIntegerRegisters() {
-				pos = stack
-				stack++
-			} else {
-				// the integers begin after the floats in frame
-				pos = intsN + numOfFloatRegisters
-			}
-			intsN++
+			addInt()
 		}
 		args[i] = reflect.NewAt(fnType.In(i), unsafe.Pointer(&frame[pos])).Elem()
 	}
