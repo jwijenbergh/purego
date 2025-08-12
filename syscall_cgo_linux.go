@@ -6,7 +6,7 @@
 package purego
 
 import (
-	"github.com/ebitengine/purego/internal/cgo"
+	"github.com/jwijenbergh/purego/internal/cgo"
 )
 
 var syscall15XABI0 = uintptr(cgo.Syscall15XABI0)

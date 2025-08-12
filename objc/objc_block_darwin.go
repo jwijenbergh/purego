@@ -9,8 +9,8 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
-	"github.com/ebitengine/purego/internal/xreflect"
+	"github.com/jwijenbergh/purego"
+	"github.com/jwijenbergh/purego/internal/xreflect"
 )
 
 const (
@@ -95,7 +95,7 @@ func newBlockFunctionCache() *blockFunctionCache {
 // blockCache is a thread safe cache of block layouts.
 //
 // It takes advantage of the block being the first argument of a block call being the block closure,
-// only invoking [github.com/ebitengine/purego.NewCallback] when it encounters a new function type (rather than on for every block creation).
+// only invoking [github.com/jwijenbergh/purego.NewCallback] when it encounters a new function type (rather than on for every block creation).
 // This should mitigate block creations putting pressure on the callback limit.
 type blockCache struct {
 	sync.Mutex

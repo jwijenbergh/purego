@@ -15,7 +15,7 @@ import _ "unsafe" // for go:linkname
 // Note: when building with cross-compiling or CGO_ENABLED=0, add
 // the following argument to `go` so that these symbols are defined by
 // making fakecgo the Cgo.
-//   -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std"
+//   -gcflags="github.com/jwijenbergh/purego/internal/fakecgo=-std"
 
 //go:linkname _environ environ
 //go:linkname _progname __progname

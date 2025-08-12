@@ -15,5 +15,5 @@ package purego
 import (
 	_ "runtime/cgo"
 
-	_ "github.com/ebitengine/purego/internal/cgo"
+	_ "github.com/jwijenbergh/purego/internal/cgo"
 )
