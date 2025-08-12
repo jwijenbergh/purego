@@ -14,7 +14,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/ebitengine/purego/internal/strings"
+	"github.com/jwijenbergh/purego/internal/strings"
 )
 
 var thePool = sync.Pool{New: func() any {
@@ -149,7 +149,7 @@ func RegisterFunc(fptr any, cfn uintptr) {
 						panic("purego: CDecl must be the first argument")
 					}
 				}
-			case reflect.String, reflect.Uintptr, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			case reflect.Array, reflect.String, reflect.Uintptr, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 				reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Ptr, reflect.UnsafePointer,
 				reflect.Slice, reflect.Bool:
 				if ints < numOfIntegerRegisters() {
@@ -202,7 +202,7 @@ func RegisterFunc(fptr any, cfn uintptr) {
 		}
 		sizeOfStack := maxArgs - numOfIntegerRegisters()
 		if stack > sizeOfStack {
-			panic("purego: too many arguments")
+			return
 		}
 	}
 	v := reflect.MakeFunc(ty, func(args []reflect.Value) (results []reflect.Value) {
@@ -362,6 +362,14 @@ func RegisterFunc(fptr any, cfn uintptr) {
 			v.SetFloat(math.Float64frombits(uint64(syscall.f1)))
 		case reflect.Struct:
 			v = getStruct(outType, *syscall)
+		case reflect.Slice:
+			// only []string is supported
+			elemType := outType.Elem()
+			if elemType.Kind() != reflect.String {
+				panic("purego: unsupported return slice element kind: " + elemType.Kind().String())
+			}
+			stringSlice := strings.GoStringSlice(syscall.a1)
+			v.Set(reflect.ValueOf(stringSlice))
 		default:
 			panic("purego: unsupported return kind: " + outType.Kind().String())
 		}
@@ -386,9 +394,22 @@ func addValue(v reflect.Value, keepAlive []any, addInt func(x uintptr), addFloat
 		addInt(uintptr(v.Uint()))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		addInt(uintptr(v.Int()))
+	case reflect.Array:
+		sliceT := reflect.SliceOf(v.Type().Elem())
+		slice := reflect.MakeSlice(sliceT, v.Len(), v.Len())
+		reflect.Copy(slice, v)
+		v = slice
+		fallthrough
 	case reflect.Ptr, reflect.UnsafePointer, reflect.Slice:
-		// There is no need to keepAlive this pointer separately because it is kept alive in the args variable
-		addInt(v.Pointer())
+		if g, ok := v.Interface().([]string); ok {
+			res := strings.ByteSlice(g)
+			keepAlive = append(keepAlive, res)
+			addInt(uintptr(unsafe.Pointer(res)))
+		} else {
+			keepAlive = append(keepAlive, v.Pointer())
+			// There is no need to keepAlive this pointer separately because it is kept alive in the args variable
+			addInt(v.Pointer())
+		}
 	case reflect.Func:
 		addInt(NewCallback(v.Interface()))
 	case reflect.Bool:

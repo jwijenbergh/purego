@@ -15,8 +15,8 @@ import (
 	"unicode"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
-	"github.com/ebitengine/purego/internal/strings"
+	"github.com/jwijenbergh/purego"
+	"github.com/jwijenbergh/purego/internal/strings"
 )
 
 // TODO: support try/catch?

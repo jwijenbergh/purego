@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/ebitengine/purego"
+	"github.com/jwijenbergh/purego"
 )
 
 func getSystemLibrary() string {

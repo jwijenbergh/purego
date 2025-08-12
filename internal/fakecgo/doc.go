@@ -21,7 +21,7 @@
 //
 // # Usage
 //
-// Using fakecgo is easy just import _ "github.com/ebitengine/purego" and then
+// Using fakecgo is easy just import _ "github.com/jwijenbergh/purego" and then
 // set the environment variable CGO_ENABLED=0.
 // The recommended usage for fakecgo is to prefer using runtime/cgo if possible
 // but if cross-compiling or fast build times are important fakecgo is available.

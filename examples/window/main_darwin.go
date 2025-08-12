@@ -6,8 +6,8 @@ package main
 import (
 	"runtime"
 
-	"github.com/ebitengine/purego"
-	"github.com/ebitengine/purego/objc"
+	"github.com/jwijenbergh/purego"
+	"github.com/jwijenbergh/purego/objc"
 )
 
 const (

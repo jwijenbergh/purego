@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
+	"github.com/jwijenbergh/purego"
 )
 
 const (
