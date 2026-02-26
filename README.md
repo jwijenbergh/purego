@@ -1,3 +1,9 @@
+# Moved to Codeberg
+
+This project has moved to [Codeberg](https://codeberg.org/puregotk/purego). This GitHub repository is no longer actively maintained.
+
+---
+
 # purego
 [![Go Reference](https://pkg.go.dev/badge/github.com/ebitengine/purego?GOOS=darwin.svg)](https://pkg.go.dev/github.com/ebitengine/purego?GOOS=darwin)
 
